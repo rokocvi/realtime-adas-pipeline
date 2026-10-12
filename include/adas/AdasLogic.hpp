@@ -12,9 +12,14 @@ namespace adas {
 struct AdasConfig {
     // ROI trapez u normaliziranim koordinatama (0.0 - 1.0 od širine/visine framea)
     // redom: dolje-lijevo, dolje-desno, gore-desno, gore-lijevo
-    std::array<cv::Point2f, 4> roi{{
-        {0.20F, 1.00F}, {0.80F, 1.00F}, {0.56F, 0.62F}, {0.44F, 0.62F}
+    // Kalibrirano za kameru gdje se cesta vidi između ~55% i ~70% visine slike
+        std::array<cv::Point2f, 4> roi{{
+        {0.33F, 0.69F}, {0.76F, 0.69F}, {0.60F, 0.56F}, {0.48F, 0.55F}
     }};
+
+    float egoLine{0.69F};
+
+    float minLaneOverlap{0.5F};  // barem 50% širine objekta mora biti u nasoj traci
 
     float vehicleWarnWidthRatio{0.22F};  // vozilo šire od 22% framea -> blizu
     float vruWarnHeightRatio{0.20F};     // pješak/biciklist viši od 20% framea -> blizu

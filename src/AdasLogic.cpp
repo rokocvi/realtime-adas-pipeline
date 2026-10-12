@@ -3,9 +3,30 @@
 #include <opencv2/imgproc.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <utility>
 
 namespace adas {
+
+namespace {
+
+// Indeksi točaka ROI trapeza (vidi redoslijed u AdasConfig)
+constexpr std::size_t kBottomLeft  = 0;
+constexpr std::size_t kBottomRight = 1;
+constexpr std::size_t kTopRight    = 2;
+constexpr std::size_t kTopLeft     = 3;
+
+// x koordinata na pravcu od a do b, za zadanu visinu y (linearna interpolacija)
+float xAtY(const cv::Point& a, const cv::Point& b, float y) noexcept {
+    const float dy = static_cast<float>(b.y - a.y);
+    if (std::abs(dy) < 1e-3F) {
+        return static_cast<float>(a.x);
+    }
+    const float t = (y - static_cast<float>(a.y)) / dy;
+    return static_cast<float>(a.x) + t * static_cast<float>(b.x - a.x);
+}
+
+}  // namespace
 
 AdasLogic::AdasLogic(AdasConfig config) : config_(std::move(config)) {}
 
@@ -26,20 +47,46 @@ void AdasLogic::updateRoi(cv::Size frameSize) {
 ObjectRisk AdasLogic::assess(const Detection& det, cv::Size frameSize) const {
     ObjectRisk risk;
 
-    // 1) Točka gdje objekt dodiruje cestu: sredina donjeg ruba boxa
-    const cv::Point2f groundPoint(
-        static_cast<float>(det.box.x) + 0.5F * static_cast<float>(det.box.width),
-        static_cast<float>(det.box.y + det.box.height));
+    const cv::Point& bottomLeft  = roiPixels_[kBottomLeft];
+    const cv::Point& bottomRight = roiPixels_[kBottomRight];
+    const cv::Point& topRight    = roiPixels_[kTopRight];
+    const cv::Point& topLeft     = roiPixels_[kTopLeft];
 
-    risk.inRoi = cv::pointPolygonTest(roiPixels_, groundPoint, false) >= 0.0;
-    if (!risk.inRoi) {
-        return risk;  // nije u našoj traci -> None
+        // 0) Ignoriraj sve što počinje ispod ruba armature: to je naš vlastiti auto
+    //    (pravi auto ispred nas uvijek seže IZNAD tog ruba)
+    const float egoY = config_.egoLine * static_cast<float>(frameSize.height);
+    if (static_cast<float>(det.box.y) >= egoY * 0.95F) {
+        return risk;
     }
 
-    // 2) U našoj je traci -> barem Caution
+    // 1) Visina na kojoj objekt dodiruje cestu (donji rub boxa)
+    const float groundY = static_cast<float>(det.box.y + det.box.height);
+
+    // Iznad gornjeg ruba trapeza = predaleko, ne zanima nas
+    if (groundY < static_cast<float>(topLeft.y)) {
+        return risk;
+    }
+    const float y = std::min(groundY, static_cast<float>(bottomLeft.y));
+
+    // 2) Gdje su lijevi i desni rub naše trake na toj visini
+    const float laneLeft  = xAtY(bottomLeft, topLeft, y);
+    const float laneRight = xAtY(bottomRight, topRight, y);
+
+    // 3) Koliki dio širine objekta je unutar trake
+    const float boxLeft  = static_cast<float>(det.box.x);
+    const float boxRight = static_cast<float>(det.box.x + det.box.width);
+    const float overlap  = std::max(0.0F, std::min(boxRight, laneRight) - std::max(boxLeft, laneLeft));
+    const float overlapRatio = overlap / static_cast<float>(det.box.width);
+
+    risk.inRoi = overlapRatio >= config_.minLaneOverlap;
+    if (!risk.inRoi) {
+        return risk;  // većina objekta je izvan naše trake -> None
+    }
+
+    // 4) U našoj je traci -> barem Caution
     risk.level = RiskLevel::Caution;
 
-    // 3) Je li blizu? (veličina boxa u odnosu na frame)
+    // 5) Je li blizu? (veličina boxa u odnosu na frame)
     const bool isClose = isVulnerable(det.cls)
         ? static_cast<float>(det.box.height) / static_cast<float>(frameSize.height)
               >= config_.vruWarnHeightRatio

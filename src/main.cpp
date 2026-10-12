@@ -3,6 +3,7 @@
 #include "adas/FrameGrabber.hpp"
 #include "adas/Timer.hpp"
 #include "adas/Types.hpp"
+#include <array>
 
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
@@ -140,10 +141,95 @@ void drawWarning(cv::Mat& frame) {
                 cv::LINE_AA);
 }
 
+// ---------------- Kalibracija ROI-ja (klikanjem mišem) ----------------
+
+constexpr const char* kCalibWindowName = "ROI calibration";
+
+struct CalibrationState {
+    std::vector<cv::Point> clicks;
+};
+
+// OpenCV poziva ovu funkciju na svaki događaj mišem u prozoru
+void onCalibrationMouse(int event, int x, int y, int /*flags*/, void* userdata) {
+    if (event != cv::EVENT_LBUTTONDOWN) {
+        return;
+    }
+    auto* state = static_cast<CalibrationState*>(userdata);
+    if (state->clicks.size() < 4) {
+        state->clicks.emplace_back(x, y);
+    }
+}
+
+int runCalibration(const std::string& source) {
+    adas::FrameGrabber grabber(source);
+    cv::Mat frame;
+    if (!grabber.grab(frame)) {
+        std::cerr << "Cannot read first frame\n";
+        return 1;
+    }
+
+    CalibrationState state;
+    cv::namedWindow(kCalibWindowName, cv::WINDOW_NORMAL);
+    cv::setMouseCallback(kCalibWindowName, onCalibrationMouse, &state);
+
+    const std::array<const char*, 4> names{
+        "BOTTOM-LEFT of your lane", "BOTTOM-RIGHT of your lane",
+        "TOP-RIGHT of your lane", "TOP-LEFT of your lane"};
+
+    const double s = uiScale(frame);
+    while (state.clicks.size() < 4) {
+        cv::Mat view = frame.clone();  // samo za kalibraciju, nije u glavnoj petlji
+        for (const auto& p : state.clicks) {
+            cv::circle(view, p, static_cast<int>(8 * s), kRed, cv::FILLED);
+        }
+        if (state.clicks.size() >= 2) {
+            cv::polylines(view, state.clicks, false, kYellow, static_cast<int>(3 * s));
+        }
+        cv::putText(view,
+                    cv::format("Click %s (%d/4)   ESC = cancel",
+                               names[state.clicks.size()],
+                               static_cast<int>(state.clicks.size()) + 1),
+                    cv::Point(static_cast<int>(30 * s), static_cast<int>(60 * s)),
+                    cv::FONT_HERSHEY_SIMPLEX, 1.0 * s, kYellow, static_cast<int>(2 * s));
+        cv::imshow(kCalibWindowName, view);
+        if ((cv::waitKey(30) & 0xFF) == kEscKey) {
+            return 1;
+        }
+    }
+    cv::destroyAllWindows();
+
+    // Ispiši rezultat kao C++ kod za AdasConfig
+    const double w = static_cast<double>(frame.cols);
+    const double h = static_cast<double>(frame.rows);
+    std::cout << std::fixed << std::setprecision(2)
+              << "\nPaste this into AdasConfig in AdasLogic.hpp:\n\n"
+              << "    std::array<cv::Point2f, 4> roi{{\n        ";
+    for (std::size_t i = 0; i < state.clicks.size(); ++i) {
+        std::cout << '{' << state.clicks[i].x / w << "F, " << state.clicks[i].y / h << "F}"
+                  << (i + 1 < state.clicks.size() ? ", " : "");
+    }
+    const double egoLine =
+        std::max(state.clicks[0].y, state.clicks[1].y) / h;
+    std::cout << "\n    }};\n\n"
+              << "    float egoLine{" << egoLine << "F};\n";
+    return 0;
+}
+
 }  // namespace
 
 // =====================================================================
 int main(int argc, char** argv) {
+        // Način rada za kalibraciju: adas_pipeline.exe --calibrate [video]
+    if (argc > 1 && std::string(argv[1]) == "--calibrate") {
+        const std::string calibSource = argc > 2 ? argv[2] : "videos/dashcam.mp4";
+        try {
+            return runCalibration(calibSource);
+        } catch (const std::exception& e) {
+            std::cerr << "Error: " << e.what() << '\n';
+            return 1;
+        }
+    }
+    
     const std::string modelPath = argc > 1 ? argv[1] : "models/yolov8n.onnx";
     const std::string source    = argc > 2 ? argv[2] : "videos/dashcam.mp4";
 
