@@ -1,6 +1,7 @@
 #include "adas/AdasLogic.hpp"
 #include "adas/Detector.hpp"
 #include "adas/FrameGrabber.hpp"
+#include "adas/Tracker.hpp"
 #include "adas/Timer.hpp"
 #include "adas/Types.hpp"
 #include <array>
@@ -17,6 +18,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <cmath>
 
 namespace {
 
@@ -92,12 +94,20 @@ void drawDetections(cv::Mat& frame, const std::vector<adas::Detection>& detectio
     const double s = uiScale(frame);
     for (std::size_t i = 0; i < detections.size(); ++i) {
         const auto& det = detections[i];
-        const cv::Scalar color = colorFor(result.perObject[i].level);
+        const auto& risk = result.perObject[i];
+        const cv::Scalar color = colorFor(risk.level);
 
         cv::rectangle(frame, det.box, color, static_cast<int>(2 * s));
 
-        const std::string label = cv::format("%s %.2f", adas::toString(det.cls).data(),
-                                             static_cast<double>(det.confidence));
+        std::string label = cv::format("%s %.2f", adas::toString(det.cls).data(),
+                                       static_cast<double>(det.confidence));
+        if (risk.trackId != 0) {
+            label += cv::format(" #%u", static_cast<unsigned>(risk.trackId));
+            if (std::isfinite(risk.ttc) && risk.ttc < 10.0F) {
+                label += cv::format(" TTC %.1fs", static_cast<double>(risk.ttc));
+            }
+        }
+
         const cv::Point org(det.box.x, std::max(det.box.y - 6, static_cast<int>(16 * s)));
         cv::putText(frame, label, org, cv::FONT_HERSHEY_SIMPLEX, 0.5 * s, color,
                     static_cast<int>(2 * s));
@@ -229,7 +239,7 @@ int main(int argc, char** argv) {
             return 1;
         }
     }
-    
+
     const std::string modelPath = argc > 1 ? argv[1] : "models/yolov8n.onnx";
     const std::string source    = argc > 2 ? argv[2] : "videos/dashcam.mp4";
 
@@ -242,6 +252,11 @@ int main(int argc, char** argv) {
         detectorConfig.modelPath = modelPath;
         adas::Detector detector(std::move(detectorConfig));
         adas::AdasLogic logic;
+        adas::Tracker tracker;
+
+        // Vrijeme između frameova u VIDEU (ne vrijeme obrade!)
+        const double videoFps = grabber.fps() > 0.0 ? grabber.fps() : 30.0;
+        const double frameDt  = 1.0 / videoFps;
         std::cout << "Model loaded: " << modelPath << '\n';
 
         // ---- 2) Warm-up: prvi prolazi kroz model su sporiji, ne mjerimo ih ----
@@ -285,7 +300,8 @@ int main(int argc, char** argv) {
             t.postMs = dt.postprocessMs;
 
             adas::Timer logicTimer;
-            logic.evaluate(detections, frame.size(), result);
+            tracker.update(detections, frameDt);
+            logic.evaluate(detections, tracker.tracks(), frame.size(), result);
             t.logicMs = logicTimer.elapsedMs();
 
             t.totalMs = pipelineTimer.elapsedMs();

@@ -52,6 +52,13 @@ private:
 
     // Prealocirani bufferi za povezivanje (bez alokacija u petlji)
     std::vector<std::uint8_t> detectionUsed_;
+
+    struct Match {
+        std::size_t track;      // indeks traga u tracks_
+        std::size_t detection;  // indeks detekcije u ovom frameu
+        float overlap;          // njihov IoU
+    };
+    std::vector<Match> candidates_;
 };
 
 // TTC u sekundama; beskonačno ako se objekt ne približava

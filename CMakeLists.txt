@@ -39,6 +39,7 @@ set_target_properties(onnxruntime::onnxruntime PROPERTIES
 add_library(adas_core STATIC
   src/FrameGrabber.cpp
   src/Detector.cpp
+  src/Tracker.cpp
   src/AdasLogic.cpp)
 
 target_include_directories(adas_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
