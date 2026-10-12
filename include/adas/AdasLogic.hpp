@@ -27,6 +27,7 @@ struct AdasConfig {
     float ttcWarnSeconds{2.5F};          // upozori ako je TTC manji od ovoga
     float maxLateralRatio{0.15F};        // vozilo koje se bočno kreće brže od 15% širine
                                          // framea u sekundi prolazi pored nas
+    float pathHalfWidthMeters{1.5F};     // objekt dalje od 1.5 m bočno nije na našoj putanji
 
     // Rezervni kriterij: jako blizu (npr. stojimo iza auta, TTC = beskonačno)
     float vehicleWarnWidthRatio{0.22F};
@@ -42,6 +43,7 @@ struct ObjectRisk {
     bool inRoi{false};
     std::uint32_t trackId{0};                                 // 0 = nema potvrđenog traga
     float ttc{std::numeric_limits<float>::infinity()};       // sekunde do sudara
+    float lateralOffsetM{0.0F};                               // bočni pomak od naše putanje [m]
 };
 
 // Rezultat za cijeli frame

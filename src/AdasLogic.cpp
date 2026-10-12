@@ -24,7 +24,18 @@ float xAtY(const cv::Point& a, const cv::Point& b, float y) noexcept {
     const float t = (y - static_cast<float>(a.y)) / dy;
     return static_cast<float>(a.x) + t * static_cast<float>(b.x - a.x);
 }
-
+// Tipična stvarna visina objekta u metrima (za procjenu bočnog pomaka)
+float typicalHeightMeters(ObjectClass c) noexcept {
+    switch (c) {
+        case ObjectClass::Person:     return 1.70F;
+        case ObjectClass::Bicycle:    return 1.70F;  // s biciklistom
+        case ObjectClass::Motorcycle: return 1.50F;  // s vozačem
+        case ObjectClass::Car:        return 1.50F;
+        case ObjectClass::Bus:        return 3.00F;
+        case ObjectClass::Truck:      return 3.00F;
+    }
+    return 1.50F;
+}
 }  // namespace
 
 AdasLogic::AdasLogic(AdasConfig config) : config_(std::move(config)) {
@@ -82,6 +93,15 @@ ObjectRisk AdasLogic::assess(const Detection& det, const Track* track, cv::Size 
 
     // 2) Vozilo koje brzo ide bočno prolazi pored nas (npr. iz suprotnog smjera).
     //    Pješake NE filtriramo: pješak koji prelazi cestu ispred nas JEST opasan.
+        // 2a) Bočni pomak od naše putanje u METRIMA (pinhole model: X = H * dx / h)
+    const float pathCenterX = 0.5F * static_cast<float>(topLeft.x + topRight.x);
+    const float boxCenterX  = static_cast<float>(det.box.x) + 0.5F * static_cast<float>(det.box.width);
+    const float pxPerMeter  = static_cast<float>(det.box.height) / typicalHeightMeters(det.cls);
+    risk.lateralOffsetM = (boxCenterX - pathCenterX) / pxPerMeter;
+
+    if (std::abs(risk.lateralOffsetM) > config_.pathHalfWidthMeters) {
+        return risk;  // u ROI-ju, ali nije na našoj putanji (npr. susjedna traka) -> Caution
+    }
     if (track != nullptr && !isVulnerable(det.cls)) {
         const float lateralRatio =
             std::abs(track->lateralRate) / static_cast<float>(frameSize.width);

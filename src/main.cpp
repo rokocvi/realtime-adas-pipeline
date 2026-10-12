@@ -104,6 +104,9 @@ void drawDetections(cv::Mat& frame, const std::vector<adas::Detection>& detectio
         if (risk.trackId != 0) {
             label += cv::format(" #%u", static_cast<unsigned>(risk.trackId));
             if (std::isfinite(risk.ttc) && risk.ttc < 10.0F) {
+                if(risk.inRoi){
+                    label += cv::format(" (%.2fm)", static_cast<double>(risk.lateralOffsetM));
+                }
                 label += cv::format(" TTC %.1fs", static_cast<double>(risk.ttc));
             }
         }
