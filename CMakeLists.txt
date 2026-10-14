@@ -1,16 +1,22 @@
 cmake_minimum_required(VERSION 3.16)
-project(AdasPipeline VERSION 0.1.0 LANGUAGES CXX)
+project(AdasPipeline VERSION 0.1.0 LANGUAGES C CXX)
 
-# ---------- 1. C++ standard ----------
+# ---------- 1. Standardi jezika ----------
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_EXTENSIONS OFF)
+
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # ---------- 2. Postavke kompajlera (upozorenja) ----------
 add_library(project_options INTERFACE)
 if(MSVC)
-  target_compile_options(project_options INTERFACE /W4 /permissive- /utf-8)
+  target_compile_options(project_options INTERFACE
+    /W4 /utf-8 $<$<COMPILE_LANGUAGE:CXX>:/permissive->)
 else()
   target_compile_options(project_options INTERFACE -Wall -Wextra -Wpedantic)
 endif()
@@ -35,26 +41,42 @@ set_target_properties(onnxruntime::onnxruntime PROPERTIES
   IMPORTED_LOCATION             "${ONNXRUNTIME_LIBRARY}"
   INTERFACE_INCLUDE_DIRECTORIES "${ONNXRUNTIME_INCLUDE_DIR}")
 
-# ---------- 5. Naša biblioteka s logikom ----------
+# ---------- 5. C biblioteka: CAN poruke (dijele je ADAS kamera i Brake ECU) ----------
+add_library(adas_msg STATIC common/src/adas_msg.c)
+target_include_directories(adas_msg PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/common/include)
+target_link_libraries(adas_msg PRIVATE project_options)
+
+# ---------- 6. C++ biblioteka s ADAS logikom ----------
 add_library(adas_core STATIC
   src/FrameGrabber.cpp
   src/Detector.cpp
-  src/Tracker.cpp
-  src/AdasLogic.cpp)
+  src/AdasLogic.cpp
+  src/Tracker.cpp)
 
 target_include_directories(adas_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(adas_core
   PUBLIC  ${OpenCV_LIBS} onnxruntime::onnxruntime
   PRIVATE project_options)
 
-# ---------- 6. Izvršni program ----------
+# ---------- 7. ADAS kamera (izvršni program) ----------
 add_executable(adas_pipeline src/main.cpp)
 target_link_libraries(adas_pipeline PRIVATE adas_core project_options)
 
-# ---------- 7. Windows: kopiraj onnxruntime.dll pored .exe ----------
+# ---------- 8. Windows: kopiraj onnxruntime.dll pored .exe ----------
 if(WIN32)
   add_custom_command(TARGET adas_pipeline POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${ONNXRUNTIME_ROOT}/lib/onnxruntime.dll"
             $<TARGET_FILE_DIR:adas_pipeline>)
 endif()
+
+# ---------- 9. Testovi ----------
+enable_testing()
+
+add_executable(test_adas_msg tests/test_adas_msg.c)
+target_link_libraries(test_adas_msg PRIVATE adas_msg project_options)
+if(NOT MSVC)
+  target_link_libraries(test_adas_msg PRIVATE m)   # matematička biblioteka (fabsf) na Linuxu
+endif()
+
+add_test(NAME adas_msg_test COMMAND test_adas_msg)
