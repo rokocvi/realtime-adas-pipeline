@@ -90,7 +90,7 @@ endif()
 add_test(NAME adas_msg_test COMMAND test_adas_msg)
 
 # ---------- 10. Brake ECU (C): prima CAN poruke preko UDP-a ----------
-add_executable(brake_ecu ecu/brake_ecu.c)
+add_executable(brake_ecu ecu/brake_ecu.c ecu/brake_logic.c)
 target_link_libraries(brake_ecu PRIVATE adas_msg osal project_options)
 
 # ---------- 11. Fake camera (C): šalje testne poruke ----------
