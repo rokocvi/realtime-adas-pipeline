@@ -46,6 +46,14 @@ add_library(adas_msg STATIC common/src/adas_msg.c)
 target_include_directories(adas_msg PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/common/include)
 target_link_libraries(adas_msg PRIVATE project_options)
 
+# ---------- 5b. OSAL: mreža i vrijeme za Windows i POSIX (C) ----------
+add_library(osal STATIC common/src/osal.c)
+target_include_directories(osal PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/common/include)
+target_link_libraries(osal PRIVATE project_options)
+if(WIN32)
+  target_link_libraries(osal PRIVATE ws2_32)   # Winsock biblioteka
+endif()
+
 # ---------- 6. C++ biblioteka s ADAS logikom ----------
 add_library(adas_core STATIC
   src/FrameGrabber.cpp
